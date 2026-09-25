@@ -173,3 +173,9 @@ docker compose exec -T postgres pg_restore -U food_user -d food_orders --clean -
 ```
 
 Sauvegarder également le volume `uploads_data`, qui contient les images.
+
+## CI/CD
+
+Le workflow `.github/workflows/ci-cd.yml` exécute le lint, les 18 tests et le build sur chaque pull request et push vers `main`. Après un push valide sur `main`, il synchronise le backend sur le VPS, applique les migrations Prisma, reconstruit l’API et contrôle son endpoint de disponibilité. En cas d’échec applicatif, l’image Docker précédente est restaurée.
+
+Créer dans GitHub, sous **Settings → Secrets and variables → Actions**, le secret `VPS_SSH_PRIVATE_KEY` contenant la clé privée de déploiement. Sans ce secret, la CI s’exécute et le déploiement est ignoré. Le workflow peut aussi être relancé manuellement depuis l’onglet **Actions**.

@@ -1,0 +1,82 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: justin-backend-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+      - name: Lint, test and build
+        run: npm run check
+
+  deploy:
+    name: Deploy backend to production
+    if: github.event_name != 'pull_request'
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check deployment configuration
+        id: deploy_config
+        shell: bash
+        run: |
+          if [[ -n "$DEPLOY_KEY" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deployment skipped: add the VPS_SSH_PRIVATE_KEY repository secret."
+          fi
+      - name: Configure SSH
+        if: steps.deploy_config.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          cp .github/known_hosts ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Synchronize backend source
+        if: steps.deploy_config.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          rsync -az --delete --delay-updates \
+            --exclude='.git/' --exclude='.github/' --exclude='.env*' \
+            --exclude='node_modules/' --exclude='dist/' --exclude='coverage/' \
+            --exclude='uploads/' \
+            -e "ssh -i ~/.ssh/id_ed25519 -p 2222 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
+            ./ nagato@84.247.131.51:/home/nagato/apps/ma-cuisine/backend/
+      - name: Migrate, rebuild and restart backend
+        if: steps.deploy_config.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -p 2222 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            nagato@84.247.131.51 \
+            'bash /home/nagato/apps/ma-cuisine/backend/scripts/deploy-production.sh'
