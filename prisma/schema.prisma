@@ -1,0 +1,348 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  DELIVERER
+  CUSTOMER
+}
+
+model User {
+  id                  String               @id @default(cuid())
+  email               String               @unique
+  passwordHash        String?
+  googleSubject       String?              @unique
+  avatarUrl           String?
+  displayName         String
+  role                UserRole             @default(CUSTOMER)
+  isActive            Boolean              @default(true)
+  tokenVersion        Int                  @default(0)
+  lastLoginAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  orderStatusChanges  OrderStatusHistory[]
+  confirmedPayments   Payment[]            @relation("PaymentConfirmedBy")
+  pushSubscriptions   PushSubscription[]
+  deliveryAssignments DeliveryAssignment[]
+  inAppNotifications  InAppNotification[]
+  orders              Order[]              @relation("CustomerOrders")
+}
+
+model StoreSettings {
+  id                  Int       @id @default(1)
+  businessName        String    @default("Ma cuisine")
+  timezone            String    @default("Africa/Douala")
+  ordersOpenAt        String    @default("18:00")
+  ordersCloseAt       String    @default("09:00")
+  isManuallyClosed    Boolean   @default(false)
+  manualClosureReason String?
+  nextOpeningAt       DateTime?
+  allowPreorders      Boolean   @default(false)
+  dailyOrderLimit     Int?
+  dailyPortionLimit   Int?
+  defaultDeliveryFee  Decimal   @default(500) @db.Decimal(12, 2)
+  mobileMoneyEnabled  Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model DeliveryZone {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  centerLat    Decimal  @db.Decimal(10, 7)
+  centerLng    Decimal  @db.Decimal(10, 7)
+  radiusKm     Decimal  @db.Decimal(8, 2)
+  fee          Decimal  @db.Decimal(12, 2)
+  estimatedMin Int?
+  estimatedMax Int?
+  sortOrder    Int      @default(0)
+  isActive     Boolean  @default(true)
+  orders       Order[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  UNAVAILABLE
+  ARCHIVED
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Product {
+  id          String        @id @default(cuid())
+  categoryId  String
+  category    Category      @relation(fields: [categoryId], references: [id])
+  name        String
+  slug        String        @unique
+  description String?
+  price       Decimal       @db.Decimal(12, 2)
+  imageUrl    String?
+  portions    Int           @default(1)
+  status      ProductStatus @default(DRAFT)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  orderItems  OrderItem[]
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum OrderSource {
+  WEB
+  PHONE
+  WHATSAPP
+  ADMIN
+}
+
+enum FulfillmentType {
+  DELIVERY
+  PICKUP
+}
+
+enum PaymentMethod {
+  CASH
+  MOBILE_MONEY
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum OutboxEventType {
+  ORDER_CREATED
+  ORDER_STATUS_CHANGED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+model Order {
+  id                   String               @id @default(cuid())
+  reference            String               @unique
+  idempotencyKey       String               @unique
+  trackingToken        String               @unique
+  status               OrderStatus          @default(PENDING)
+  source               OrderSource          @default(WEB)
+  customerId           String?
+  customer             User?                @relation("CustomerOrders", fields: [customerId], references: [id], onDelete: SetNull)
+  fulfillmentType      FulfillmentType
+  customerName         String
+  customerPhone        String
+  deliveryAddress      String?
+  deliveryLatitude     Decimal?             @db.Decimal(10, 7)
+  deliveryLongitude    Decimal?             @db.Decimal(10, 7)
+  deliveryInstructions String?
+  deliveryZoneId       String?
+  deliveryZone         DeliveryZone?        @relation(fields: [deliveryZoneId], references: [id], onDelete: SetNull)
+  deliveryZoneName     String?
+  subtotal             Decimal              @db.Decimal(12, 2)
+  deliveryFee          Decimal              @default(0) @db.Decimal(12, 2)
+  total                Decimal              @db.Decimal(12, 2)
+  requestedFor         DateTime?
+  items                OrderItem[]
+  statusHistory        OrderStatusHistory[]
+  payments             Payment[]
+  outboxEvents         OutboxEvent[]
+  deliveryStop         DeliveryStop?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  @@index([status, createdAt])
+  @@index([requestedFor])
+  @@index([deliveryZoneId])
+  @@index([customerId, createdAt])
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName String
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  quantity    Int
+  portions    Int      @default(1)
+  lineTotal   Decimal  @db.Decimal(12, 2)
+}
+
+model OrderStatusHistory {
+  id         String       @id @default(cuid())
+  orderId    String
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  actorId    String?
+  actor      User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  note       String?
+  createdAt  DateTime     @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  orderId           String
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  amount            Decimal       @db.Decimal(12, 2)
+  currency          String        @default("XAF")
+  provider          String?
+  providerReference String?       @unique
+  payerPhone        String?
+  failureReason     String?
+  paidAt            DateTime?
+  confirmedById     String?
+  confirmedBy       User?         @relation("PaymentConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([orderId, status])
+  @@index([status, createdAt])
+}
+
+model OutboxEvent {
+  id            String          @id @default(cuid())
+  type          OutboxEventType
+  status        OutboxStatus    @default(PENDING)
+  orderId       String?
+  order         Order?          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payload       Json
+  attempts      Int             @default(0)
+  nextAttemptAt DateTime        @default(now())
+  processedAt   DateTime?
+  lastError     String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([status, nextAttemptAt])
+}
+
+model PushSubscription {
+  id            String   @id @default(cuid())
+  endpoint      String   @unique
+  p256dh        String
+  auth          String
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerPhone String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, isActive])
+  @@index([customerPhone, isActive])
+}
+
+enum DeliveryAssignmentStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DeliveryStopStatus {
+  PENDING
+  ARRIVED
+  DELIVERED
+  SKIPPED
+}
+
+model DeliveryAssignment {
+  id          String                   @id @default(cuid())
+  driverId    String
+  driver      User                     @relation(fields: [driverId], references: [id])
+  status      DeliveryAssignmentStatus @default(PLANNED)
+  startedAt   DateTime?
+  completedAt DateTime?
+  stops       DeliveryStop[]
+  locations   DeliveryLocation[]
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  @@index([driverId, status])
+}
+
+model DeliveryStop {
+  id                   String             @id @default(cuid())
+  assignmentId         String
+  assignment           DeliveryAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  orderId              String             @unique
+  order                Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sequence             Int
+  status               DeliveryStopStatus @default(PENDING)
+  estimatedDistanceKm  Decimal?           @db.Decimal(8, 2)
+  estimatedDurationMin Int?
+  arrivedAt            DateTime?
+  deliveredAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@unique([assignmentId, sequence])
+  @@index([assignmentId, status])
+}
+
+model DeliveryLocation {
+  id           String             @id @default(cuid())
+  assignmentId String
+  assignment   DeliveryAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  latitude     Decimal            @db.Decimal(10, 7)
+  longitude    Decimal            @db.Decimal(10, 7)
+  accuracy     Float?
+  heading      Float?
+  speed        Float?
+  recordedAt   DateTime           @default(now())
+
+  @@index([assignmentId, recordedAt])
+}
+
+model InAppNotification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt, createdAt])
+}
