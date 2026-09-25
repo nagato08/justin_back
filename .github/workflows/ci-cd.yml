@@ -20,14 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --fund=false || (npm cache clean --force && npm ci --no-audit --fund=false)
       - name: Generate Prisma client
         run: npm run prisma:generate
       - name: Lint, test and build
@@ -42,7 +42,7 @@ jobs:
       DEPLOY_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Check deployment configuration
         id: deploy_config
         shell: bash
