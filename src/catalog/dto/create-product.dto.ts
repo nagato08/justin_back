@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { ProductStatus } from "@prisma/client";
 import {
+  ArrayMaxSize,
+  IsArray,
   IsEnum,
   IsInt,
   IsNumber,
@@ -57,6 +59,25 @@ export class CreateProductDto {
   )
   @MaxLength(500)
   imageUrl?: string | null;
+
+  @ApiPropertyOptional({
+    type: [String],
+    maxItems: 8,
+    description: "Galerie du produit, dans l’ordre d’affichage",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @Matches(
+    /^(?:https?:\/\/[^\s]+|\/uploads\/products\/[a-z0-9-]+\.(?:jpe?g|png|webp))$/i,
+    {
+      each: true,
+      message:
+        "Chaque image doit être une URL HTTP(S) ou une image téléversée valide.",
+    },
+  )
+  @MaxLength(500, { each: true })
+  imageUrls?: string[];
 
   @ApiPropertyOptional({ default: 1, minimum: 1, maximum: 100 })
   @IsOptional()

@@ -23,9 +23,24 @@ export class CatalogService {
         products: {
           where: { status: ProductStatus.ACTIVE },
           orderBy: { name: "asc" },
+          include: {
+            images: { orderBy: { sortOrder: "asc" } },
+          },
         },
       },
     });
+  }
+
+  async getPublicProduct(slug: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { slug, status: ProductStatus.ACTIVE },
+      include: {
+        category: true,
+        images: { orderBy: { sortOrder: "asc" } },
+      },
+    });
+    if (!product) throw new NotFoundException("Produit introuvable.");
+    return product;
   }
 
   getAdminCategories() {
@@ -94,7 +109,10 @@ export class CatalogService {
       this.prisma.product.findMany({
         where,
         orderBy: { createdAt: "desc" },
-        include: { category: true },
+        include: {
+          category: true,
+          images: { orderBy: { sortOrder: "asc" } },
+        },
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
@@ -111,17 +129,43 @@ export class CatalogService {
     };
   }
 
+  async getAdminProduct(id: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: {
+        category: true,
+        images: { orderBy: { sortOrder: "asc" } },
+      },
+    });
+    if (!product) throw new NotFoundException("Produit introuvable.");
+    return product;
+  }
+
   async createProduct(dto: CreateProductDto) {
     await this.ensureCategoryExists(dto.categoryId);
+    const { imageUrls, imageUrl, ...productData } = dto;
+    const gallery = this.normalizeImageUrls(
+      imageUrls ?? (imageUrl ? [imageUrl] : []),
+    );
+
     try {
       return await this.prisma.product.create({
         data: {
-          ...dto,
+          ...productData,
           name: dto.name.trim(),
           slug: dto.slug ?? this.slugify(dto.name),
           price: new Prisma.Decimal(dto.price),
+          imageUrl: gallery[0] ?? null,
+          ...(gallery.length > 0 && {
+            images: {
+              create: gallery.map((url, sortOrder) => ({ url, sortOrder })),
+            },
+          }),
         },
-        include: { category: true },
+        include: {
+          category: true,
+          images: { orderBy: { sortOrder: "asc" } },
+        },
       });
     } catch (error) {
       this.handleUniqueConstraint(error, "Ce produit existe déjà.");
@@ -131,17 +175,34 @@ export class CatalogService {
   async updateProduct(id: string, dto: UpdateProductDto) {
     await this.ensureProductExists(id);
     if (dto.categoryId) await this.ensureCategoryExists(dto.categoryId);
+
+    const { imageUrls, ...productData } = dto;
+    const gallery =
+      imageUrls === undefined ? undefined : this.normalizeImageUrls(imageUrls);
+
     try {
       return await this.prisma.product.update({
         where: { id },
         data: {
-          ...dto,
+          ...productData,
           ...(dto.name && { name: dto.name.trim() }),
           ...(dto.price !== undefined && {
             price: new Prisma.Decimal(dto.price),
           }),
+          ...(gallery !== undefined && {
+            imageUrl: gallery[0] ?? null,
+            images: {
+              deleteMany: {},
+              ...(gallery.length > 0 && {
+                create: gallery.map((url, sortOrder) => ({ url, sortOrder })),
+              }),
+            },
+          }),
         },
-        include: { category: true },
+        include: {
+          category: true,
+          images: { orderBy: { sortOrder: "asc" } },
+        },
       });
     } catch (error) {
       this.handleUniqueConstraint(error, "Ce nom court est déjà utilisé.");
@@ -154,6 +215,10 @@ export class CatalogService {
       where: { id },
       data: { status: ProductStatus.ARCHIVED },
     });
+  }
+
+  private normalizeImageUrls(urls: string[]): string[] {
+    return [...new Set(urls.map((url) => url.trim()).filter(Boolean))];
   }
 
   private async ensureCategoryExists(id: string): Promise<void> {

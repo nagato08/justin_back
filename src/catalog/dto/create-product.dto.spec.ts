@@ -1,12 +1,12 @@
 import { validate } from "class-validator";
 import { CreateProductDto } from "./create-product.dto";
 
-function product(imageUrl: string): CreateProductDto {
+function product(imageUrl?: string): CreateProductDto {
   return Object.assign(new CreateProductDto(), {
     categoryId: "category-id",
     name: "Poulet braisé",
     price: 5000,
-    imageUrl,
+    ...(imageUrl ? { imageUrl } : {}),
   });
 }
 
@@ -25,4 +25,32 @@ describe("CreateProductDto imageUrl", () => {
       expect(errors.some((error) => error.property === "imageUrl")).toBe(true);
     },
   );
+});
+
+describe("CreateProductDto imageUrls", () => {
+  it("accepte une galerie de huit images valides", async () => {
+    const dto = product();
+    dto.imageUrls = Array.from(
+      { length: 8 },
+      (_, index) => `/uploads/products/photo-${index}.webp`,
+    );
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it("refuse plus de huit images", async () => {
+    const dto = product();
+    dto.imageUrls = Array.from(
+      { length: 9 },
+      (_, index) => `/uploads/products/photo-${index}.webp`,
+    );
+    const errors = await validate(dto);
+    expect(errors.some((error) => error.property === "imageUrls")).toBe(true);
+  });
+
+  it("refuse une adresse dangereuse dans la galerie", async () => {
+    const dto = product();
+    dto.imageUrls = ["/uploads/products/photo.webp", "javascript:alert(1)"];
+    const errors = await validate(dto);
+    expect(errors.some((error) => error.property === "imageUrls")).toBe(true);
+  });
 });

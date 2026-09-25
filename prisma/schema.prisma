@@ -87,19 +87,31 @@ model Category {
 }
 
 model Product {
-  id          String        @id @default(cuid())
+  id          String         @id @default(cuid())
   categoryId  String
-  category    Category      @relation(fields: [categoryId], references: [id])
+  category    Category       @relation(fields: [categoryId], references: [id])
   name        String
-  slug        String        @unique
+  slug        String         @unique
   description String?
-  price       Decimal       @db.Decimal(12, 2)
+  price       Decimal        @db.Decimal(12, 2)
   imageUrl    String?
-  portions    Int           @default(1)
-  status      ProductStatus @default(DRAFT)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  portions    Int            @default(1)
+  status      ProductStatus  @default(DRAFT)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
   orderItems  OrderItem[]
+  images      ProductImage[]
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId, sortOrder])
 }
 
 enum OrderStatus {

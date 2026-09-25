@@ -62,6 +62,12 @@ export class AdminCatalogController {
     return this.catalogService.getAdminProducts(query);
   }
 
+  @Get("products/:id")
+  @ApiOperation({ summary: "Afficher le détail d’un produit" })
+  getProduct(@Param("id") id: string) {
+    return this.catalogService.getAdminProduct(id);
+  }
+
   @Post("products")
   @ApiOperation({ summary: "Créer un produit" })
   createProduct(@Body() dto: CreateProductDto) {

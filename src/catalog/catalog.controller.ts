@@ -1,4 +1,4 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, Param } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CatalogService } from "./catalog.service";
 
@@ -11,5 +11,11 @@ export class CatalogController {
   @ApiOperation({ summary: "Afficher le menu public disponible" })
   getCatalog() {
     return this.catalogService.getPublicCatalog();
+  }
+
+  @Get("products/:slug")
+  @ApiOperation({ summary: "Afficher le détail public d’un produit" })
+  getProduct(@Param("slug") slug: string) {
+    return this.catalogService.getPublicProduct(slug);
   }
 }
