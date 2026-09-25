@@ -6,7 +6,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  IsUrl,
   Matches,
   Max,
   MaxLength,
@@ -43,9 +42,19 @@ export class CreateProductDto {
   @Max(10000000)
   price: number;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    example: "/uploads/products/550e8400-e29b-41d4-a716-446655440000.webp",
+    description:
+      "URL HTTP(S) ou chemin d’image produit téléversée par l’application",
+  })
   @IsOptional()
-  @IsUrl({ require_protocol: true })
+  @Matches(
+    /^(?:https?:\/\/[^\s]+|\/uploads\/products\/[a-z0-9-]+\.(?:jpe?g|png|webp))$/i,
+    {
+      message:
+        "imageUrl doit être une URL HTTP(S) ou une image téléversée valide.",
+    },
+  )
   @MaxLength(500)
   imageUrl?: string | null;
 
