@@ -1,3 +1,4 @@
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { StoreSettingsService } from "./store-settings.service";
 import { StoreSettingsRecord } from "./store-settings.types";
 
@@ -47,5 +48,41 @@ describe("StoreSettingsService", () => {
     expect(status.isOpen).toBe(false);
     expect(status.reason).toBe("MANUALLY_CLOSED");
     expect(status.message).toBe("Toutes les portions sont réservées.");
+  });
+
+  it("refuse une précommande quand elles sont désactivées", () => {
+    const now = new Date("2026-09-22T12:00:00+01:00");
+    expect(() =>
+      service.validateRequestedFor(
+        settings,
+        new Date("2026-09-22T13:00:00+01:00"),
+        now,
+        true,
+      ),
+    ).toThrow(ConflictException);
+  });
+
+  it("limite les précommandes à quatorze jours", () => {
+    const now = new Date("2026-09-22T12:00:00+01:00");
+    expect(() =>
+      service.validateRequestedFor(
+        { ...settings, allowPreorders: true },
+        new Date("2026-10-07T12:00:01+01:00"),
+        now,
+        true,
+      ),
+    ).toThrow(BadRequestException);
+  });
+
+  it("accepte une précommande autorisée dans la limite", () => {
+    const now = new Date("2026-09-22T12:00:00+01:00");
+    expect(() =>
+      service.validateRequestedFor(
+        { ...settings, allowPreorders: true },
+        new Date("2026-09-29T12:00:00+01:00"),
+        now,
+        true,
+      ),
+    ).not.toThrow();
   });
 });

@@ -6,6 +6,8 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import {
+  DeliveryAssignmentStatus,
+  DeliveryStopStatus,
   FulfillmentType,
   OrderSource,
   OrderStatus,
@@ -71,11 +73,12 @@ export class OrdersService {
       );
     }
 
-    if (requestedFor.getTime() < now.getTime() - 60_000) {
-      throw new BadRequestException(
-        "La date demandée ne peut pas être dans le passé.",
-      );
-    }
+    this.storeSettings.validateRequestedFor(
+      settings,
+      requestedFor,
+      now,
+      dto.requestedFor !== undefined,
+    );
     if (!currentStatus.isOpen) {
       throw new ConflictException(currentStatus.message);
     }
@@ -430,10 +433,69 @@ export class OrdersService {
           where: { orderId: order.id, status: PaymentStatus.PENDING },
           data: { status: PaymentStatus.CANCELLED },
         });
+
+        const stops = await tx.deliveryStop.findMany({
+          where: {
+            orderId: order.id,
+            status: {
+              in: [DeliveryStopStatus.PENDING, DeliveryStopStatus.ARRIVED],
+            },
+          },
+          select: { assignmentId: true },
+        });
+        if (stops.length > 0) {
+          await tx.deliveryStop.updateMany({
+            where: {
+              orderId: order.id,
+              status: {
+                in: [DeliveryStopStatus.PENDING, DeliveryStopStatus.ARRIVED],
+              },
+            },
+            data: { status: DeliveryStopStatus.SKIPPED },
+          });
+          const assignmentIds = [
+            ...new Set(stops.map((stop) => stop.assignmentId)),
+          ];
+          for (const assignmentId of assignmentIds) {
+            const openStops = await tx.deliveryStop.count({
+              where: {
+                assignmentId,
+                status: {
+                  in: [DeliveryStopStatus.PENDING, DeliveryStopStatus.ARRIVED],
+                },
+              },
+            });
+            if (openStops === 0) {
+              await tx.deliveryAssignment.updateMany({
+                where: {
+                  id: assignmentId,
+                  status: {
+                    in: [
+                      DeliveryAssignmentStatus.PLANNED,
+                      DeliveryAssignmentStatus.IN_PROGRESS,
+                    ],
+                  },
+                },
+                data: {
+                  status: DeliveryAssignmentStatus.COMPLETED,
+                  completedAt: new Date(),
+                },
+              });
+            }
+          }
+        }
       }
-      return tx.order.update({
-        where: { id },
+      const updated = await tx.order.updateMany({
+        where: { id, status: order.status },
         data: { status: dto.status },
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException(
+          "La commande a été modifiée entre-temps. Actualisez la liste.",
+        );
+      }
+      return tx.order.findUniqueOrThrow({
+        where: { id },
         include: { items: true, payments: true },
       });
     });

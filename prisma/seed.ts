@@ -11,8 +11,8 @@ async function main(): Promise<void> {
   if (!email || !password) {
     throw new Error("ADMIN_EMAIL et ADMIN_PASSWORD doivent être définis.");
   }
-  if (password.length < 6) {
-    throw new Error("ADMIN_PASSWORD doit contenir au moins 6 caractères.");
+  if (password.length < 8) {
+    throw new Error("ADMIN_PASSWORD doit contenir au moins 8 caractères.");
   }
 
   const passwordHash = await hash(password, 12);
@@ -24,11 +24,8 @@ async function main(): Promise<void> {
       displayName: "Administratrice",
       role: UserRole.ADMIN,
     },
-    update: {
-      passwordHash,
-      role: UserRole.ADMIN,
-      isActive: true,
-    },
+    // Un déploiement ne doit jamais modifier un compte existant.
+    update: {},
   });
 
   console.log(`Compte administrateur prêt : ${email}`);

@@ -1,6 +1,10 @@
 import { HttpStatus, UnauthorizedException } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { hash } from "bcryptjs";
+jest.mock("./firebase-token.verifier", () => ({
+  FirebaseTokenVerifier: class FirebaseTokenVerifier {},
+}));
+
 import { AuthService } from "./auth.service";
 
 describe("AuthService", () => {

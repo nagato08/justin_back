@@ -12,9 +12,9 @@ export class RegisterDto {
   @MaxLength(100)
   displayName: string;
 
-  @ApiProperty({ minLength: 6 })
+  @ApiProperty({ minLength: 8 })
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
   @MaxLength(128)
   password: string;
 }

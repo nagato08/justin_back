@@ -13,6 +13,8 @@ import {
   UserRole,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { canTransitionOrder } from "../orders/order-status.transitions";
+import { canTransitionDeliveryStop } from "./delivery-stop.transitions";
 import {
   CreateDeliveryAssignmentDto,
   DriverLocationDto,
@@ -127,15 +129,37 @@ export class DeliveryTrackingService {
         },
       },
       include: {
-        stops: { orderBy: { sequence: "asc" }, include: { order: true } },
+        stops: {
+          orderBy: { sequence: "asc" },
+          include: {
+            order: {
+              select: {
+                id: true,
+                reference: true,
+                status: true,
+                fulfillmentType: true,
+                customerName: true,
+                customerPhone: true,
+                deliveryAddress: true,
+                deliveryLatitude: true,
+                deliveryLongitude: true,
+                deliveryInstructions: true,
+              },
+            },
+          },
+        },
       },
     });
   }
 
   async start(id: string, driverId: string) {
     const assignment = await this.authorizeDriver(id, driverId);
-    if (assignment.status === DeliveryAssignmentStatus.COMPLETED)
-      throw new ConflictException("Cette tournée est terminée.");
+    if (
+      assignment.status === DeliveryAssignmentStatus.COMPLETED ||
+      assignment.status === DeliveryAssignmentStatus.CANCELLED
+    ) {
+      throw new ConflictException("Cette tournée ne peut plus être démarrée.");
+    }
     return this.prisma.deliveryAssignment.update({
       where: { id },
       data: {
@@ -166,17 +190,34 @@ export class DeliveryTrackingService {
     driverId: string,
     status: DeliveryStopStatus,
   ) {
-    if (status === DeliveryStopStatus.PENDING)
-      throw new ConflictException("Statut d’arrêt invalide.");
-    const stop = await this.prisma.deliveryStop.findFirst({
-      where: { id: stopId, assignment: { driverId } },
-      include: { order: true },
-    });
-    if (!stop) throw new NotFoundException("Arrêt introuvable.");
     return this.prisma.$transaction(async (tx) => {
+      const stop = await tx.deliveryStop.findFirst({
+        where: { id: stopId, assignment: { driverId } },
+        include: {
+          order: true,
+          assignment: { select: { status: true } },
+        },
+      });
+      if (!stop) throw new NotFoundException("Arrêt introuvable.");
+      if (stop.assignment.status !== DeliveryAssignmentStatus.IN_PROGRESS) {
+        throw new ConflictException(
+          "La tournée doit être démarrée pour modifier un arrêt.",
+        );
+      }
+      if (!canTransitionDeliveryStop(stop.status, status)) {
+        throw new ConflictException(
+          `Passage de l’arrêt de ${stop.status} à ${status} impossible.`,
+        );
+      }
+      if (!canTransitionOrder(stop.order.status, OrderStatus.DELIVERED)) {
+        throw new ConflictException(
+          "Le statut actuel de la commande interdit cette action.",
+        );
+      }
+
       const now = new Date();
-      const updated = await tx.deliveryStop.update({
-        where: { id: stopId },
+      const stopUpdate = await tx.deliveryStop.updateMany({
+        where: { id: stopId, status: stop.status },
         data: {
           status,
           arrivedAt:
@@ -185,14 +226,22 @@ export class DeliveryTrackingService {
             status === DeliveryStopStatus.DELIVERED ? now : undefined,
         },
       });
-      if (
-        status === DeliveryStopStatus.DELIVERED &&
-        stop.order.status !== OrderStatus.DELIVERED
-      ) {
-        await tx.order.update({
-          where: { id: stop.orderId },
+      if (stopUpdate.count !== 1) {
+        throw new ConflictException(
+          "L’arrêt a été modifié entre-temps. Actualisez la tournée.",
+        );
+      }
+
+      if (status === DeliveryStopStatus.DELIVERED) {
+        const orderUpdate = await tx.order.updateMany({
+          where: { id: stop.orderId, status: stop.order.status },
           data: { status: OrderStatus.DELIVERED },
         });
+        if (orderUpdate.count !== 1) {
+          throw new ConflictException(
+            "La commande a été modifiée entre-temps. Actualisez la tournée.",
+          );
+        }
         await tx.orderStatusHistory.create({
           data: {
             orderId: stop.orderId,
@@ -214,6 +263,7 @@ export class DeliveryTrackingService {
           },
         });
       }
+
       const openStops = await tx.deliveryStop.count({
         where: {
           assignmentId: stop.assignmentId,
@@ -222,15 +272,20 @@ export class DeliveryTrackingService {
           },
         },
       });
-      if (openStops === 0)
-        await tx.deliveryAssignment.update({
-          where: { id: stop.assignmentId },
+      if (openStops === 0) {
+        await tx.deliveryAssignment.updateMany({
+          where: {
+            id: stop.assignmentId,
+            status: DeliveryAssignmentStatus.IN_PROGRESS,
+          },
           data: {
             status: DeliveryAssignmentStatus.COMPLETED,
             completedAt: now,
           },
         });
-      return updated;
+      }
+
+      return tx.deliveryStop.findUniqueOrThrow({ where: { id: stopId } });
     });
   }
 

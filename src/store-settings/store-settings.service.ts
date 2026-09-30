@@ -1,4 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from "@nestjs/common";
 import { Prisma, StoreSettings } from "@prisma/client";
 import { DateTime } from "luxon";
 import { PrismaService } from "../prisma/prisma.service";
@@ -43,6 +47,37 @@ export class StoreSettingsService {
         }),
       },
     });
+  }
+
+  validateRequestedFor(
+    settings: StoreSettingsRecord,
+    requestedFor: Date,
+    now: Date,
+    explicitlyRequested: boolean,
+  ): void {
+    if (requestedFor.getTime() < now.getTime() - 60_000) {
+      throw new BadRequestException(
+        "La date demandée ne peut pas être dans le passé.",
+      );
+    }
+    if (!explicitlyRequested) return;
+
+    const latest = DateTime.fromJSDate(now).plus({ days: 14 }).toJSDate();
+    if (requestedFor.getTime() > latest.getTime()) {
+      throw new BadRequestException(
+        "Une commande ne peut pas être programmée plus de 14 jours à l’avance.",
+      );
+    }
+
+    const immediateTolerance = now.getTime() + 5 * 60_000;
+    if (
+      !settings.allowPreorders &&
+      requestedFor.getTime() > immediateTolerance
+    ) {
+      throw new ConflictException(
+        "Les commandes programmées ne sont pas activées.",
+      );
+    }
   }
 
   getOrderingWindow(

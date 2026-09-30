@@ -38,12 +38,12 @@ export class CreateUserDto {
   displayName: string;
 
   @ApiPropertyOptional({
-    minLength: 6,
+    minLength: 8,
     description: "Facultatif si le compte se connecte par téléphone",
   })
   @IsOptional()
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
   @MaxLength(128)
   password?: string;
 

@@ -21,7 +21,7 @@ import { OrdersService } from "./orders.service";
 @ApiTags("admin/orders")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN, UserRole.DELIVERER)
+@Roles(UserRole.ADMIN)
 @Controller("admin/orders")
 export class AdminOrdersController {
   constructor(private readonly ordersService: OrdersService) {}
