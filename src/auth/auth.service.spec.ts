@@ -1,4 +1,4 @@
-import { UnauthorizedException } from "@nestjs/common";
+import { HttpStatus, UnauthorizedException } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { hash } from "bcryptjs";
 import { AuthService } from "./auth.service";
@@ -30,7 +30,7 @@ describe("AuthService", () => {
     const service = new AuthService(
       prisma as never,
       jwt as never,
-      { get: jest.fn() } as never,
+      { verifyPhoneToken: jest.fn() } as never,
     );
 
     const result = await service.login({
@@ -61,7 +61,7 @@ describe("AuthService", () => {
     const service = new AuthService(
       prisma as never,
       {} as never,
-      { get: jest.fn() } as never,
+      { verifyPhoneToken: jest.fn() } as never,
     );
 
     await expect(
@@ -85,7 +85,7 @@ describe("AuthService", () => {
     const service = new AuthService(
       prisma as never,
       {} as never,
-      { get: jest.fn() } as never,
+      { verifyPhoneToken: jest.fn() } as never,
     );
 
     await expect(
@@ -113,7 +113,7 @@ describe("AuthService", () => {
     const service = new AuthService(
       prisma as never,
       jwt as never,
-      { get: jest.fn() } as never,
+      { verifyPhoneToken: jest.fn() } as never,
     );
 
     const result = await service.register({
@@ -130,6 +130,130 @@ describe("AuthService", () => {
         displayName: "Client Test",
         role: UserRole.CUSTOMER,
       }) as object,
+    });
+  });
+
+  describe("phoneLogin", () => {
+    const firebase = {
+      verifyPhoneToken: jest
+        .fn()
+        .mockResolvedValue({ uid: "fb-uid", phone: "+237690000000" }),
+    };
+    const jwt = { signAsync: jest.fn().mockResolvedValue("phone-token") };
+
+    it("exige un nom pour créer un compte inconnu", async () => {
+      const prisma = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn(),
+        },
+      };
+      const service = new AuthService(
+        prisma as never,
+        jwt as never,
+        firebase as never,
+      );
+
+      await expect(
+        service.phoneLogin({ idToken: "token" }),
+      ).rejects.toMatchObject({ status: HttpStatus.PRECONDITION_REQUIRED });
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it("crée un client avec le numéro vérifié par Firebase", async () => {
+      const prisma = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockImplementation(({ data }) =>
+            Promise.resolve({
+              id: "customer-2",
+              email: null,
+              ...data,
+              tokenVersion: 0,
+              isActive: true,
+            }),
+          ),
+          update: jest.fn().mockResolvedValue({}),
+        },
+      };
+      const service = new AuthService(
+        prisma as never,
+        jwt as never,
+        firebase as never,
+      );
+
+      const result = await service.phoneLogin({
+        idToken: "token",
+        displayName: " Awa ",
+      });
+
+      expect(prisma.user.create).toHaveBeenCalledWith({
+        data: {
+          phone: "+237690000000",
+          firebaseUid: "fb-uid",
+          displayName: "Awa",
+          role: UserRole.CUSTOMER,
+        },
+      });
+      expect(result.user).toMatchObject({
+        phone: "+237690000000",
+        role: UserRole.CUSTOMER,
+      });
+    });
+
+    it("lie un compte existant trouvé par son numéro", async () => {
+      const existing = {
+        ...user,
+        role: UserRole.DELIVERER,
+        phone: "+237690000000",
+        firebaseUid: null,
+        tokenVersion: 0,
+      };
+      const prisma = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(existing),
+          update: jest
+            .fn()
+            .mockImplementation(({ data }) =>
+              Promise.resolve({ ...existing, ...data }),
+            ),
+        },
+      };
+      const service = new AuthService(
+        prisma as never,
+        jwt as never,
+        firebase as never,
+      );
+
+      const result = await service.phoneLogin({ idToken: "token" });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: "user-1" },
+        data: { firebaseUid: "fb-uid", phone: "+237690000000" },
+      });
+      expect(result.user.role).toBe(UserRole.DELIVERER);
+    });
+
+    it("refuse un compte désactivé", async () => {
+      const prisma = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue({
+            ...user,
+            isActive: false,
+            phone: "+237690000000",
+            firebaseUid: "fb-uid",
+          }),
+        },
+      };
+      const service = new AuthService(
+        prisma as never,
+        jwt as never,
+        firebase as never,
+      );
+
+      await expect(service.phoneLogin({ idToken: "token" })).rejects.toThrow(
+        "Ce compte est désactivé.",
+      );
     });
   });
 });

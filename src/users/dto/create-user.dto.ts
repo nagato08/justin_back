@@ -5,14 +5,31 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from "class-validator";
+import { E164_PHONE } from "../../common/phone";
 
 export class CreateUserDto {
-  @ApiProperty({ example: "employe@example.com" })
+  @ApiPropertyOptional({
+    example: "employe@example.com",
+    description: "E-mail ou téléphone obligatoire",
+  })
+  @ValidateIf((dto: CreateUserDto) => !dto.phone)
   @IsEmail()
-  email: string;
+  email?: string;
+
+  @ApiPropertyOptional({
+    example: "+237690000000",
+    description: "Format international, pour la connexion par OTP",
+  })
+  @IsOptional()
+  @Matches(E164_PHONE, {
+    message: "Le téléphone doit être au format international (+237…).",
+  })
+  phone?: string;
 
   @ApiProperty({ example: "Marie" })
   @IsString()
@@ -22,7 +39,7 @@ export class CreateUserDto {
 
   @ApiPropertyOptional({
     minLength: 6,
-    description: "Facultatif si le livreur utilisera Google",
+    description: "Facultatif si le compte se connecte par téléphone",
   })
   @IsOptional()
   @IsString()
