@@ -112,6 +112,12 @@ export class AuthService {
         },
       });
     }
+    if (!user.email) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { email },
+      });
+    }
     if (!user.isActive)
       throw new ForbiddenException("Ce compte est désactivé.");
     return this.issueSession(user);
@@ -119,7 +125,7 @@ export class AuthService {
 
   private async issueSession(user: {
     id: string;
-    email: string;
+    email: string | null;
     displayName: string;
     role: UserRole;
     tokenVersion: number;

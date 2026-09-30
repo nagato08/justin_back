@@ -21,7 +21,7 @@ export class CreateUserDto {
   displayName: string;
 
   @ApiPropertyOptional({
-minLength: 8,
+    minLength: 8,
     description: "Facultatif si le livreur utilisera Google",
   })
   @IsOptional()
