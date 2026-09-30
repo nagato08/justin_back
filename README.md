@@ -97,7 +97,7 @@ de marquer un paiement réussi. La boutique refuse encore Mobile Money lorsque
 
 - `POST /auth/register` — création d’un compte client
 - `POST /auth/login`
-- `POST /auth/phone` — connexion ou inscription par OTP SMS (Firebase)
+- `POST /auth/google`
 - `GET /auth/me`
 - `PATCH /auth/password`
 - `GET|POST /admin/users`
@@ -105,14 +105,11 @@ de marquer un paiement réussi. La boutique refuse encore Mobile Money lorsque
 - `POST /admin/users/:id/reset-password`
 - `GET /admin/reports/dashboard`
 
-Les rôles sont `ADMIN` (la propriétaire), `DELIVERER` et `CUSTOMER`. Pour la
-connexion par téléphone, le frontend envoie le code OTP à Firebase
-Authentication puis transmet le Firebase ID token à `/auth/phone`. Le backend
-vérifie sa signature et son projet (`FIREBASE_PROJECT_ID`, sans compte de
-service) et n’accepte que le fournisseur `phone`. Un numéro inconnu crée un
-compte `CUSTOMER` : l’API répond `428` tant que `displayName` n’est pas fourni.
-Un livreur ou une administratrice se connecte par OTP si son numéro a été
-renseigné dans `/admin/users`, sinon par e-mail et mot de passe.
+Les rôles sont `ADMIN` (la propriétaire), `DELIVERER` et `CUSTOMER`. Pour
+Google, le frontend envoie le Google ID token à `/auth/google`. Le backend
+vérifie sa signature, son audience et l’e-mail vérifié. Un nouvel utilisateur
+Google devient `CUSTOMER`, sauf si son adresse figure dans
+`GOOGLE_ALLOWED_EMAILS`. Un livreur doit d’abord être invité par son e-mail.
 
 Les commandes restent ouvertes à toute heure. `ordersOpenAt` et
 `ordersCloseAt` sont uniquement informatifs. Seul `isManuallyClosed`, piloté

@@ -7,7 +7,7 @@ import { CurrentUser } from "./decorators/current-user.decorator";
 import { LoginDto } from "./dto/login.dto";
 import { ChangePasswordDto } from "./dto/change-password.dto";
 import { JwtAuthGuard } from "./guards/jwt-auth.guard";
-import { PhoneAuthDto } from "./dto/phone-auth.dto";
+import { GoogleAuthDto } from "./dto/google-auth.dto";
 import { RegisterDto } from "./dto/register.dto";
 
 @ApiTags("auth")
@@ -29,13 +29,11 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
-  @Post("phone")
+  @Post("google")
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @ApiOperation({
-    summary: "S’inscrire ou se connecter par téléphone (OTP Firebase)",
-  })
-  phoneLogin(@Body() dto: PhoneAuthDto) {
-    return this.authService.phoneLogin(dto);
+  @ApiOperation({ summary: "S’inscrire ou se connecter avec Google" })
+  googleLogin(@Body() dto: GoogleAuthDto) {
+    return this.authService.googleLogin(dto);
   }
 
   @Get("me")

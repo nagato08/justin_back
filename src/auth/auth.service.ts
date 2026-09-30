@@ -1,19 +1,18 @@
 import {
   ConflictException,
   ForbiddenException,
-  HttpException,
-  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { compare, hash } from "bcryptjs";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthenticatedUser, JwtPayload } from "./auth.types";
 import { LoginDto } from "./dto/login.dto";
 import { ChangePasswordDto } from "./dto/change-password.dto";
-import { PhoneAuthDto } from "./dto/phone-auth.dto";
-import { FirebaseTokenVerifier } from "./firebase-token.verifier";
+import { GoogleAuthDto } from "./dto/google-auth.dto";
+import { OAuth2Client } from "google-auth-library";
 import { UserRole } from "@prisma/client";
 import { RegisterDto } from "./dto/register.dto";
 
@@ -22,7 +21,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-    private readonly firebase: FirebaseTokenVerifier,
+    private readonly config: ConfigService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -37,7 +36,12 @@ export class AuthService {
       });
       return this.issueSession(user);
     } catch (error) {
-      if (isUniqueViolation(error)) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "P2002"
+      ) {
         throw new ConflictException("Cette adresse e-mail est déjà utilisée.");
       }
       throw error;
@@ -63,42 +67,49 @@ export class AuthService {
     return this.issueSession(user);
   }
 
-  async phoneLogin(dto: PhoneAuthDto) {
-    const { uid, phone } = await this.firebase.verifyPhoneToken(dto.idToken);
+  async googleLogin(dto: GoogleAuthDto) {
+    const clientId = this.config.get<string>("GOOGLE_CLIENT_ID");
+    if (!clientId)
+      throw new UnauthorizedException("Google Sign-In n’est pas configuré.");
+    const ticket = await new OAuth2Client(clientId)
+      .verifyIdToken({
+        idToken: dto.idToken,
+        audience: clientId,
+      })
+      .catch(() => null);
+    const google = ticket?.getPayload();
+    if (!google?.sub || !google.email || !google.email_verified) {
+      throw new UnauthorizedException("Compte Google non vérifié.");
+    }
+    const email = google.email.toLowerCase();
     let user = await this.prisma.user.findFirst({
-      where: { OR: [{ firebaseUid: uid }, { phone }] },
+      where: { OR: [{ googleSubject: google.sub }, { email }] },
     });
     if (!user) {
-      const displayName = dto.displayName?.trim();
-      if (!displayName) {
-        throw new HttpException(
-          "Indiquez votre nom pour créer votre compte.",
-          HttpStatus.PRECONDITION_REQUIRED,
-        );
-      }
-      user = await this.prisma.user
-        .create({
-          data: {
-            phone,
-            firebaseUid: uid,
-            displayName,
-            role: UserRole.CUSTOMER,
-          },
-        })
-        .catch((error: unknown) => {
-          if (isUniqueViolation(error)) {
-            throw new ConflictException("Ce numéro est déjà utilisé.");
-          }
-          throw error;
-        });
-    } else if (user.firebaseUid && user.firebaseUid !== uid) {
+      const allowed = (this.config.get<string>("GOOGLE_ALLOWED_EMAILS") ?? "")
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean);
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          googleSubject: google.sub,
+          displayName: google.name?.trim() || email.split("@")[0],
+          avatarUrl: google.picture,
+          role: allowed.includes(email) ? UserRole.ADMIN : UserRole.CUSTOMER,
+        },
+      });
+    } else if (user.googleSubject && user.googleSubject !== google.sub) {
       throw new UnauthorizedException(
-        "Ce numéro ne correspond pas au compte lié.",
+        "Ce compte Google ne correspond pas au compte lié.",
       );
-    } else if (!user.firebaseUid || user.phone !== phone) {
+    } else if (!user.googleSubject) {
       user = await this.prisma.user.update({
         where: { id: user.id },
-        data: { firebaseUid: uid, phone },
+        data: {
+          googleSubject: google.sub,
+          avatarUrl: google.picture ?? user.avatarUrl,
+        },
       });
     }
     if (!user.isActive)
@@ -108,8 +119,7 @@ export class AuthService {
 
   private async issueSession(user: {
     id: string;
-    email: string | null;
-    phone: string | null;
+    email: string;
     displayName: string;
     role: UserRole;
     tokenVersion: number;
@@ -128,7 +138,6 @@ export class AuthService {
     const authenticatedUser: AuthenticatedUser = {
       id: user.id,
       email: user.email,
-      phone: user.phone,
       displayName: user.displayName,
       role: user.role,
     };
@@ -165,13 +174,4 @@ export class AuthService {
     });
     return { success: true };
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "code" in error &&
-    error.code === "P2002"
-  );
 }

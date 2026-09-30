@@ -13,7 +13,6 @@ import { UpdateUserDto } from "./dto/update-user.dto";
 const PUBLIC_USER_SELECT = {
   id: true,
   email: true,
-  phone: true,
   displayName: true,
   role: true,
   isActive: true,
@@ -37,8 +36,7 @@ export class UsersService {
     try {
       return await this.prisma.user.create({
         data: {
-          email: dto.email?.trim().toLowerCase() || null,
-          phone: dto.phone || null,
+          email: dto.email.trim().toLowerCase(),
           displayName: dto.displayName.trim(),
           passwordHash: dto.password ? await hash(dto.password, 12) : null,
           role: dto.role ?? UserRole.DELIVERER,
@@ -50,9 +48,7 @@ export class UsersService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === "P2002"
       ) {
-        throw new ConflictException(
-          "Cette adresse e-mail ou ce numéro est déjà utilisé.",
-        );
+        throw new ConflictException("Cette adresse e-mail est déjà utilisée.");
       }
       throw error;
     }
@@ -70,27 +66,14 @@ export class UsersService {
         "Vous ne pouvez pas désactiver ou rétrograder votre propre compte.",
       );
     }
-    return this.prisma.user
-      .update({
-        where: { id },
-        data: {
-          ...dto,
-          ...(dto.displayName && { displayName: dto.displayName.trim() }),
-          // Un nouveau numéro doit être revérifié par OTP avant d’être lié.
-          ...(dto.phone !== undefined &&
-            dto.phone !== user.phone && { firebaseUid: null }),
-        },
-        select: PUBLIC_USER_SELECT,
-      })
-      .catch((error: unknown) => {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === "P2002"
-        ) {
-          throw new ConflictException("Ce numéro est déjà utilisé.");
-        }
-        throw error;
-      });
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        ...dto,
+        ...(dto.displayName && { displayName: dto.displayName.trim() }),
+      },
+      select: PUBLIC_USER_SELECT,
+    });
   }
 
   async resetPassword(id: string, dto: ResetPasswordDto) {
