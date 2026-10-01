@@ -30,6 +30,7 @@ export class JwtAuthGuard implements CanActivate {
         select: {
           id: true,
           email: true,
+          phone: true,
           displayName: true,
           role: true,
           isActive: true,
@@ -43,6 +44,7 @@ export class JwtAuthGuard implements CanActivate {
       request.user = {
         id: user.id,
         email: user.email,
+        phone: user.phone,
         displayName: user.displayName,
         role: user.role,
       };

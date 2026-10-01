@@ -5,9 +5,11 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from "class-validator";
+import { E164_PHONE } from "../../common/phone";
 
 export class UpdateUserDto {
   @ApiPropertyOptional()
@@ -16,6 +18,13 @@ export class UpdateUserDto {
   @MinLength(2)
   @MaxLength(100)
   displayName?: string;
+
+  @ApiPropertyOptional({ example: "+237690000000" })
+  @IsOptional()
+  @Matches(E164_PHONE, {
+    message: "Le téléphone doit être au format international (+237…).",
+  })
+  phone?: string;
 
   @ApiPropertyOptional({ enum: UserRole })
   @IsOptional()
